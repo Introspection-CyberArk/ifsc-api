@@ -31,15 +31,13 @@ telegram_app = Application.builder().token(TOKEN).build()
 # ============ COMMAND HANDLERS ============
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send welcome message"""
     await update.message.reply_text(
         "🏦 **Bank Code Finder**\n\n"
         "Type a **bank name** to see IFSC codes!\n\n"
         "**Examples:**\n"
         "• `HDFC`\n"
         "• `SBI`\n"
-        "• `ICICI`\n"
-        "• `Canara Bank`\n\n"
+        "• `ICICI`\n\n"
         "Or send an IFSC code like `HDFC0000001`\n\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "🤖 **Powered By @Introspection007**",
@@ -47,7 +45,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help message"""
     await update.message.reply_text(
         "🏦 **How to use:**\n\n"
         "1️⃣ Type a **bank name** (e.g., `HDFC`, `SBI`)\n"
@@ -61,11 +58,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all text messages"""
     user_input = update.message.text.strip().upper()
     await update.message.reply_chat_action(action="typing")
 
-    # Check if it's an IFSC code
     is_ifsc = len(user_input) == 11 and user_input[:4].isalpha() and user_input[4:].isalnum()
     
     if is_ifsc:
@@ -74,7 +69,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await search_bank_by_name(update, user_input)
 
 async def search_bank_by_name(update: Update, bank_name: str):
-    """Search for banks by name"""
     try:
         search_term = bank_name.lower().strip()
         bank_code = None
@@ -130,7 +124,6 @@ async def search_bank_by_name(update: Update, bank_name: str):
         )
 
 async def handle_ifsc(update: Update, ifsc_code: str):
-    """Fetch and display IFSC code details"""
     try:
         response = requests.get(f"{IFSC_API_URL}/{ifsc_code}", timeout=10)
         
@@ -181,10 +174,10 @@ telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_
 # ============ FLASK WEBHOOK ROUTES ============
 
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
-def webhook():
+async def webhook():
     try:
         update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-        telegram_app.process_update(update)
+        await telegram_app.process_update(update)  # ✅ FIXED: Added await
         
         response = make_response(jsonify({"status": "ok"}), 200)
         response.headers["Content-Type"] = "application/json"

@@ -1,4 +1,4 @@
-// api/webhook.js
+// webhook.js
 const https = require('https');
 
 module.exports = async (req, res) => {
@@ -57,7 +57,23 @@ module.exports = async (req, res) => {
         });
     };
 
-    // Escape HTML helper utility to prevent parsing crashes
+    const searchBanks = (bankCode) => {
+        return new Promise((resolve, reject) => {
+            https.get(`https://ifsc.razorpay.com/search?bankcode=${bankCode.toUpperCase()}&limit=10`, (response) => {
+                let body = '';
+                response.on('data', (chunk) => (body += chunk));
+                response.on('end', () => {
+                    try {
+                        if (response.statusCode === 200) resolve(JSON.parse(body));
+                        else resolve(null);
+                    } catch (e) {
+                        resolve(null);
+                    }
+                });
+            }).on('error', () => resolve(null));
+        });
+    };
+
     const escapeHtml = (text) => {
         if (!text) return 'N/A';
         return String(text)
@@ -66,51 +82,172 @@ module.exports = async (req, res) => {
             .replace(/>/g, '&gt;');
     };
 
+    // Bank name to code mapping
+    const bankCodes = {
+        'sbi': 'SBIN',
+        'state bank': 'SBIN',
+        'hdfc': 'HDFC',
+        'icici': 'ICICI',
+        'axis': 'UTIB',
+        'axis bank': 'UTIB',
+        'kotak': 'KKBK',
+        'kotak mahindra': 'KKBK',
+        'yes bank': 'YESB',
+        'yes': 'YESB',
+        'pnb': 'PUNB',
+        'punjab national bank': 'PUNB',
+        'canara bank': 'CNRB',
+        'canara': 'CNRB',
+        'bank of baroda': 'BARB',
+        'baroda': 'BARB',
+        'idbi': 'IDBI',
+        'idbi bank': 'IDBI',
+        'indian bank': 'IDIB',
+        'indian': 'IDIB',
+        'indian overseas': 'IOBA',
+        'indian overseas bank': 'IOBA',
+        'union bank': 'UBIN',
+        'union': 'UBIN',
+        'uco bank': 'UCBA',
+        'uco': 'UCBA',
+        'central bank': 'CBIN',
+        'central': 'CBIN'
+    };
+
+    // Handle /start command
     if (incomingText === '/start') {
-        const welcomeMessage = `Welcome to the Bank Details Lookup Bot!\n\nSend me any 11-digit bank IFSC code (e.g., SBIN0001234) to get complete branch information, MICR, and SWIFT codes.\n\nPowered By\n@Introspection007`;
-        await postToTelegram({ chat_id: chatId, text: welcomeMessage });
+        const welcomeMessage = `🏦 **Bank Details Lookup Bot**
+
+Just type a **bank name** (e.g., HDFC, SBI, ICICI) to get IFSC codes!
+
+Or send an **IFSC code** for complete details.
+
+**Examples:**
+• HDFC
+• SBI
+• ICICI
+• HDFC0000501
+
+━━━━━━━━━━━━━━━━━━━━━
+🤖 Powered By @Introspection007`;
+
+        await postToTelegram({ 
+            chat_id: chatId, 
+            text: welcomeMessage,
+            parse_mode: 'Markdown'
+        });
         return res.status(200).send('OK');
     }
 
+    // Check if it's an IFSC code (11 chars, first 4 letters)
     const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/i;
-    if (!ifscRegex.test(incomingText)) {
-        const invalidMessage = `Invalid IFSC format. Please check the 11-character code and try again.\n\nPowered By\n@Introspection007`;
-        await postToTelegram({ chat_id: chatId, text: invalidMessage });
+    const isIfsc = ifscRegex.test(incomingText);
+
+    if (isIfsc) {
+        // ============ HANDLE IFSC CODE ============
+        const data = await fetchBankData(incomingText);
+
+        if (!data) {
+            const missingMessage = `❌ IFSC Code ${incomingText.toUpperCase()} not found.\n\n━━━━━━━━━━━━━━━━━━━━━\n🤖 Powered By @Introspection007`;
+            await postToTelegram({ chat_id: chatId, text: missingMessage });
+            return res.status(200).send('OK');
+        }
+
+        const successMessage = `🏛 <b>BANK DETAILS FOUND</b> 🏛\n\n` +
+            `• <b>Bank Name:</b> ${escapeHtml(data.BANK)}\n` +
+            `• <b>Branch:</b> ${escapeHtml(data.BRANCH)}\n` +
+            `• <b>IFSC Code:</b> ${escapeHtml(data.IFSC)}\n` +
+            `• <b>MICR Code:</b> ${escapeHtml(data.MICR || 'Not Available')}\n` +
+            `• <b>SWIFT Code:</b> ${escapeHtml(data.SWIFT || 'Not Available')}\n` +
+            `• <b>Address:</b> ${escapeHtml(data.ADDRESS)}\n` +
+            `• <b>City:</b> ${escapeHtml(data.CITY)}\n` +
+            `• <b>District:</b> ${escapeHtml(data.DISTRICT)}\n` +
+            `• <b>State:</b> ${escapeHtml(data.STATE)}\n` +
+            `• <b>Contact:</b> ${escapeHtml(data.CONTACT)}\n\n` +
+            `⚡ <b>Services:</b>\n` +
+            `• UPI: ${data.UPI ? '✅' : '❌'}\n` +
+            `• IMPS: ${data.IMPS ? '✅' : '❌'}\n` +
+            `• NEFT: ${data.NEFT ? '✅' : '❌'}\n` +
+            `• RTGS: ${data.RTGS ? '✅' : '❌'}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🤖 Powered By @Introspection007`;
+
+        await postToTelegram({
+            chat_id: chatId,
+            text: successMessage,
+            parse_mode: 'HTML'
+        });
         return res.status(200).send('OK');
     }
 
-    const data = await fetchBankData(incomingText);
+    // ============ HANDLE BANK NAME SEARCH ============
+    const searchTerm = incomingText.toLowerCase().trim();
+    let bankCode = null;
 
-    if (!data) {
-        const missingMessage = `IFSC Code ${incomingText.toUpperCase()} not found in database.\n\nPowered By\n@Introspection007`;
-        await postToTelegram({ chat_id: chatId, text: missingMessage });
-        return res.status(200).send('OK');
+    // Find matching bank code
+    for (const [key, code] of Object.entries(bankCodes)) {
+        if (key.includes(searchTerm) || searchTerm.includes(key)) {
+            bankCode = code;
+            break;
+        }
     }
 
-    // Built using structural safe HTML tags instead of breakable Markdown syntax symbols
-    const successMessage = `🏛 <b>BANK DETAILS FOUND</b> 🏛\n\n` +
-        `• <b>Bank Name:</b> ${escapeHtml(data.BANK)}\n` +
-        `• <b>Branch:</b> ${escapeHtml(data.BRANCH)}\n` +
-        `• <b>IFSC Code:</b> ${escapeHtml(data.IFSC)}\n` +
-        `• <b>MICR Code:</b> ${escapeHtml(data.MICR || 'Not Available')}\n` +
-        `• <b>SWIFT Code:</b> ${escapeHtml(data.SWIFT || 'Not Available (Query Branch)')}\n` +
-        `• <b>Address:</b> ${escapeHtml(data.ADDRESS)}\n` +
-        `• <b>City:</b> ${escapeHtml(data.CITY)}\n` +
-        `• <b>District:</b> ${escapeHtml(data.DISTRICT)}\n` +
-        `• <b>State:</b> ${escapeHtml(data.STATE)}\n` +
-        `• <b>Contact:</b> ${escapeHtml(data.CONTACT)}\n\n` +
-        `⚡ <b>Features Supported:</b>\n` +
-        `• UPI: ${data.UPI ? '✅' : '❌'}\n` +
-        `• IMPS: ${data.IMPS ? '✅' : '❌'}\n` +
-        `• NEFT: ${data.NEFT ? '✅' : '❌'}\n` +
-        `• RTGS: ${data.RTGS ? '✅' : '❌'}\n\n` +
-        `Powered By\n` +
-        `@Introspection007`;
+    if (!bankCode && searchTerm.length >= 4) {
+        bankCode = searchTerm.substring(0, 4).toUpperCase();
+    }
+
+    if (bankCode) {
+        const results = await searchBanks(bankCode);
+
+        if (results && results.length > 0) {
+            let reply = `🏦 **Branches for ${incomingText.toUpperCase()}**\n\n`;
+
+            for (let i = 0; i < Math.min(results.length, 10); i++) {
+                const branch = results[i];
+                reply += `${i+1}. **${escapeHtml(branch.BRANCH)}**\n`;
+                reply += `   IFSC: \`${escapeHtml(branch.IFSC)}\`\n`;
+                reply += `   City: ${escapeHtml(branch.CITY)}\n`;
+                reply += `   Address: ${escapeHtml(branch.ADDRESS).substring(0, 60)}...\n\n`;
+            }
+
+            if (results.length > 10) {
+                reply += `*Showing 10 of ${results.length} branches*\n\n`;
+            }
+
+            reply += `━━━━━━━━━━━━━━━━━━━━━\n`;
+            reply += `💡 Send any IFSC code for full details!\n\n`;
+            reply += `🤖 Powered By @Introspection007`;
+
+            await postToTelegram({
+                chat_id: chatId,
+                text: reply,
+                parse_mode: 'Markdown'
+            });
+            return res.status(200).send('OK');
+        }
+    }
+
+    // No results found
+    const notFoundMessage = `🔍 **No branches found for '${incomingText}'**
+
+Try these bank names:
+• HDFC
+• SBI
+• ICICI
+• Axis
+• Canara Bank
+• Kotak
+• Yes Bank
+
+Or send an IFSC code directly!
+
+━━━━━━━━━━━━━━━━━━━━━
+🤖 Powered By @Introspection007`;
 
     await postToTelegram({
         chat_id: chatId,
-        text: successMessage,
-        parse_mode: 'HTML'
+        text: notFoundMessage,
+        parse_mode: 'Markdown'
     });
 
     return res.status(200).send('OK');

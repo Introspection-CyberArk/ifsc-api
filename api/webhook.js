@@ -2,6 +2,10 @@
 const https = require('https');
 
 module.exports = async (req, res) => {
+    // Handle both root and /webhook paths
+    const path = req.url || '/';
+    
+    // Only process POST requests
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).end('Method Not Allowed');
@@ -110,12 +114,9 @@ module.exports = async (req, res) => {
         });
     };
 
-    // 2. Fuzzy Bank Search API (astro-dally/Bankapi)
-    // Note: Since this is a Next.js API, we'll simulate fuzzy search locally
-    // For production, you would call: https://bankapi.vercel.app/api/search?q=HDFC
+    // 2. Fuzzy Bank Search
     const fuzzySearchBank = (query) => {
         return new Promise((resolve) => {
-            // Use Razorpay's search as base, but with fuzzy matching on bank names
             const bankCodes = {
                 'sbi': 'SBIN', 'state bank': 'SBIN', 'state bank of india': 'SBIN',
                 'hdfc': 'HDFC', 'icici': 'ICICI', 'axis': 'UTIB', 'axis bank': 'UTIB',
@@ -140,9 +141,7 @@ module.exports = async (req, res) => {
             let bestMatch = null;
             let bestScore = 0;
 
-            // Fuzzy matching - find closest bank name
             for (const [key, code] of Object.entries(bankCodes)) {
-                // Simple substring match with priority
                 let score = 0;
                 if (key.includes(searchTerm) || searchTerm.includes(key)) {
                     score = 10;
@@ -163,7 +162,6 @@ module.exports = async (req, res) => {
             if (bestMatch && bestScore > 2) {
                 resolve(bestMatch);
             } else {
-                // Try partial match on first 4 letters
                 if (searchTerm.length >= 4) {
                     const guessedCode = searchTerm.substring(0, 4).toUpperCase();
                     resolve({ bankCode: guessedCode, bankName: query });
@@ -174,9 +172,6 @@ module.exports = async (req, res) => {
         });
     };
 
-    // 3. Bank Search API (sameerkumar18 style) - Fetch IFSC/MICR by branch
-    // Integrated with Razorpay's search
-
     const escapeHtml = (text) => {
         if (!text) return 'N/A';
         return String(text)
@@ -184,6 +179,29 @@ module.exports = async (req, res) => {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
     };
+
+    // ============ HELPER: SEND BRANCH BUTTONS ============
+    async function sendBranchButtons(chatId, headerText, results) {
+        let replyText = `${headerText}\n\nTap a branch to get details:\n\n━━━━━━━━━━━━━━━━━━━━━\n🤖 Powered By @Introspection007`;
+
+        const keyboard = { inline_keyboard: [] };
+
+        for (let i = 0; i < Math.min(results.length, 15); i++) {
+            const branch = results[i];
+            const label = `${branch.BRANCH} (${branch.CITY})`;
+            const callbackData = `ifsc_${branch.IFSC}`;
+            keyboard.inline_keyboard.push([{ text: label, callback_data: callbackData }]);
+        }
+
+        keyboard.inline_keyboard.push([{ text: "🔄 New Search", callback_data: "search_again" }]);
+
+        await postToTelegram({
+            chat_id: chatId,
+            text: replyText,
+            parse_mode: 'Markdown',
+            reply_markup: keyboard
+        });
+    }
 
     // ============ HANDLE CALLBACK QUERY (Button Click) ============
     if (callback_query) {
@@ -243,7 +261,6 @@ Or type:
     }
 
     // ============ HANDLE TEXT MESSAGES ============
-    const { message } = req.body || {};
     if (!message || !message.text) {
         return res.status(200).send('OK');
     }
@@ -291,7 +308,6 @@ I'll show you all branches as buttons. Tap any for full details!
             return res.status(200).send('OK');
         }
 
-        // Check if it's "bank city" format
         const bankCodes = {
             'sbi': 'SBIN', 'state bank': 'SBIN', 'hdfc': 'HDFC',
             'icici': 'ICICI', 'axis': 'UTIB', 'axis bank': 'UTIB',
@@ -301,7 +317,6 @@ I'll show you all branches as buttons. Tap any for full details!
             'union bank': 'UBIN', 'union': 'UBIN', 'uco': 'UCBA'
         };
 
-        // Try to detect bank and city
         let bankCode = null;
         let city = query;
 
@@ -409,29 +424,5 @@ Try a different bank name or use /search [city]
     }
 
     await sendBranchButtons(chatId, `🏦 **${fuzzyResult.bankName.toUpperCase()} Branches**`, results);
-
-    // ============ HELPER FUNCTION TO SEND BRANCH BUTTONS ============
-    async function sendBranchButtons(chatId, headerText, results) {
-        let replyText = `${headerText}\n\nTap a branch to get details:\n\n━━━━━━━━━━━━━━━━━━━━━\n🤖 Powered By @Introspection007`;
-
-        const keyboard = { inline_keyboard: [] };
-
-        for (let i = 0; i < Math.min(results.length, 15); i++) {
-            const branch = results[i];
-            const label = `${branch.BRANCH} (${branch.CITY})`;
-            const callbackData = `ifsc_${branch.IFSC}`;
-            keyboard.inline_keyboard.push([{ text: label, callback_data: callbackData }]);
-        }
-
-        keyboard.inline_keyboard.push([{ text: "🔄 New Search", callback_data: "search_again" }]);
-
-        await postToTelegram({
-            chat_id: chatId,
-            text: replyText,
-            parse_mode: 'Markdown',
-            reply_markup: keyboard
-        });
-    }
-
     return res.status(200).send('OK');
 };

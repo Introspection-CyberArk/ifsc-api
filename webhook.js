@@ -2,16 +2,12 @@
 const https = require('https');
 
 module.exports = async (req, res) => {
-    // Handle both root and /webhook paths
-    const path = req.url || '/';
-    
     // Only process POST requests
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).end('Method Not Allowed');
     }
 
-    const { message, callback_query } = req.body || {};
     const botToken = process.env.TELEGRAM_BOT_TOKEN || '8749202267:AAG9KNIY4duOid7z6l_nuzV9_jVLOBAZztE';
 
     // ============ HELPER FUNCTIONS ============
@@ -76,7 +72,6 @@ module.exports = async (req, res) => {
 
     // ============ API FUNCTIONS ============
 
-    // 1. Razorpay IFSC API - Core
     const fetchBankData = (ifsc) => {
         return new Promise((resolve) => {
             https.get(`https://ifsc.razorpay.com/${ifsc.toUpperCase()}`, (response) => {
@@ -92,7 +87,6 @@ module.exports = async (req, res) => {
         });
     };
 
-    // Razorpay search by bankcode, city, state
     const searchBanks = (params) => {
         return new Promise((resolve) => {
             let url = 'https://ifsc.razorpay.com/search?';
@@ -114,7 +108,6 @@ module.exports = async (req, res) => {
         });
     };
 
-    // 2. Fuzzy Bank Search
     const fuzzySearchBank = (query) => {
         return new Promise((resolve) => {
             const bankCodes = {
@@ -180,7 +173,6 @@ module.exports = async (req, res) => {
             .replace(/>/g, '&gt;');
     };
 
-    // ============ HELPER: SEND BRANCH BUTTONS ============
     async function sendBranchButtons(chatId, headerText, results) {
         let replyText = `${headerText}\n\nTap a branch to get details:\n\n━━━━━━━━━━━━━━━━━━━━━\n🤖 Powered By @Introspection007`;
 
@@ -203,7 +195,12 @@ module.exports = async (req, res) => {
         });
     }
 
-    // ============ HANDLE CALLBACK QUERY (Button Click) ============
+    // ============ PARSE REQUEST BODY ============
+    const body = req.body || {};
+    const message = body.message;
+    const callback_query = body.callback_query;
+
+    // ============ HANDLE CALLBACK QUERY ============
     if (callback_query) {
         await answerCallback(callback_query.id);
         const data = callback_query.data;

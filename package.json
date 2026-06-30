@@ -1,13 +1,13 @@
 {
-    "name": "ifsc-telegram-bot",
-    "version": "1.0.0",
-    "description": "Telegram bot for IFSC code lookup",
-    "main": "webhook.js",
-    "scripts": {
-        "start": "node webhook.js"
-    },
-    "dependencies": {},
-    "engines": {
-        "node": ">=18.x"
-    }
+  "name": "ifsc-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for IFSC code lookup",
+  "main": "api/webhook.js",
+  "scripts": {
+    "start": "node api/webhook.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": "20.x"
+  }
 }
